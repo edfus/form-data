@@ -11,8 +11,7 @@ type FieldContentDetails = FieldSource | {
 };
 
 interface FormData {
-  [FieldName: string]: FieldContentDetails;
-  [MultipleFilesFieldName: string]: Array<FieldContentDetails>;
+  [FieldName: string]: FieldContentDetails | Array<FieldContentDetails>;
 }
 
 export declare function serializeFormData (

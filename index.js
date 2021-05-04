@@ -1,6 +1,7 @@
 import { ok as assert } from "assert";
 import { Readable } from "stream";
 import { randomBytes } from "crypto";
+import querystring from "querystring";
 
 const kOnceResume = Symbol("onceResume");
 const kReading = Symbol("reading");
@@ -19,28 +20,28 @@ class FormDataStream extends Readable {
     this.boundary = this.generateBoundary();
   }
 
-  async readNext () {
+  async readNext() {
     this[kReading] = true;
     const boundary = this.boundary;
     const { done, value } = this.iterator.next();
-    
-    if(done) {
+
+    if (done) {
       this.push(`--${boundary}--`);
       this[kReading] = false;
       return this.push(null);
     }
 
     const [name, content] = value;
-    
+
     this.pushChunk(`--${boundary}`);
     this.pushChunk(this.lineBreak);
 
     this.pushChunk(`Content-Disposition: form-data; name="${encodeURIComponent(name)}"`);
     // Readable or { source, filename, contentType, contentTransferEncoding }
-    if(content instanceof Readable || content.source) {
+    if (content instanceof Readable || content.source) {
       const source = content.source || content;
       const filename = content.filename || basename(content.path || "") || name;
-      
+
       this.pushChunk(`; filename="${encodeURIComponent(filename)}"`);
       this.pushChunk(this.lineBreak);
 
@@ -48,7 +49,7 @@ class FormDataStream extends Readable {
     } else {
       this.pushChunk(this.lineBreak);
       // Array
-      if(Array.isArray(content)) {
+      if (Array.isArray(content)) {
         let filenameIndex = 0;
         const subBoundary = this.generateBoundary();
         this.pushChunk(`Content-Type: multipart/mixed; boundary=${subBoundary}`);
@@ -64,11 +65,10 @@ class FormDataStream extends Readable {
           this.pushChunk(`--${subBoundary}`);
           this.pushChunk(this.lineBreak);
 
-          if(file instanceof Readable) {
+          if (file instanceof Readable) {
             const filename = basename(file.path || "") || `${name}-${filenameIndex++}`;
             this.pushChunk(
-              `Content-Disposition: file; filename="${
-                encodeURIComponent(filename)
+              `Content-Disposition: file; filename="${encodeURIComponent(filename)
               }"`
             );
             this.pushChunk(this.lineBreak);
@@ -77,8 +77,7 @@ class FormDataStream extends Readable {
           }
 
           this.pushChunk(
-            `Content-Disposition: file; filename="${
-              encodeURIComponent(file.filename || `${name}-${filenameIndex++}`)
+            `Content-Disposition: file; filename="${encodeURIComponent(file.filename || `${name}-${filenameIndex++}`)
             }"`
           );
           this.pushChunk(this.lineBreak);
@@ -93,15 +92,21 @@ class FormDataStream extends Readable {
       }
     }
 
-    if(this[kReadNext]) {
+    if (this[kReadNext]) {
+      this[kReadNext] = false;
       return this.readNext();
     } else {
       return this[kReading] = false;
     }
   }
 
-  async onceResume () {
-    if(this[kOnceResume]?.promise) {
+  async onceResume() {
+    if (this[kReadNext]) {
+      this[kReadNext] = false;
+      return Promise.resolve();
+    }
+
+    if (this[kOnceResume]?.promise) {
       return this[kOnceResume].promise;
     } else {
       this[kOnceResume] = {};
@@ -118,15 +123,15 @@ class FormDataStream extends Readable {
   }
 
   _destroy(err, cb) {
-    if(this[kOnceResume]?.reject) {
+    if (this[kOnceResume]?.reject) {
       this[kOnceResume].reject(err);
     }
     return cb(err);
   }
 
   _read(size) {
-    if(this[kReading]) {
-      if(this[kOnceResume]?.resolve) {
+    if (this[kReading]) {
+      if (this[kOnceResume]?.resolve) {
         return this[kOnceResume].resolve();
       } else {
         /**
@@ -149,19 +154,19 @@ class FormDataStream extends Readable {
     return "-".repeat(16).concat(randomBytes(20).toString("base64"));
   }
 
-  pushChunk (chunk) {
+  pushChunk(chunk) {
     this[kChunkBuffer] = this[kChunkBuffer].concat(chunk);
   }
 
-  flushChunks (encoding) {
+  flushChunks(encoding) {
     this.push(this[kChunkBuffer], encoding);
     this[kChunkBuffer] = "";
   }
 
-  async streamFileField (file, contentType) {
+  async streamFileField(file, contentType) {
     assert(file);
-  
-    if(file.length) { // string or Buffer 
+
+    if (file.length) { // string or Buffer 
       this.pushChunk(`Content-Type: ${contentType || this.defaultContentType}`);
       this.pushChunk(this.lineBreak.repeat(2));
       this.flushChunks();
@@ -169,15 +174,15 @@ class FormDataStream extends Readable {
       return this.push(this.lineBreak);
     }
 
-    if(!(file instanceof Readable))
+    if (!(file instanceof Readable))
       throw new Error(`Received non-Readable stream ${file}`);
 
     this.pushChunk(`Content-Type: ${contentType || this.defaultStreamContentType}`);
-    this.pushChunk(this.lineBreak.repeat(2));  
+    this.pushChunk(this.lineBreak.repeat(2));
     this.flushChunks();
 
     for await (const chunk of this.readStream(file)) {
-      if(this.push(chunk) === false) {
+      if (this.push(chunk) === false) {
         await this.onceResume();
       }
     }
@@ -185,20 +190,20 @@ class FormDataStream extends Readable {
     this.push(this.lineBreak);
   }
 
-  async * readStream (stream) {
+  async * readStream(stream) {
     let chunk;
     while (stream.readable) {
-      await new Promise((resolve, reject)=> {
+      await new Promise((resolve, reject) => {
         stream.once("error", reject)
-            .once("end", resolve)
-            .once("readable", () => {
-              stream.removeListener("end", resolve);
-              stream.removeListener("error", reject);
-              return resolve();
-            });
+          .once("end", resolve)
+          .once("readable", () => {
+            stream.removeListener("end", resolve);
+            stream.removeListener("error", reject);
+            return resolve();
+          });
       });
 
-      if(!stream.readable) break;
+      if (!stream.readable) break;
 
       while (null !== (chunk = stream.read())) {
         yield chunk;
@@ -216,6 +221,7 @@ class FormDataStream extends Readable {
    Senders SHOULD NOT generate any parts with a Content-Transfer-
    Encoding header field.
  * https://tools.ietf.org/html/rfc7578
+ * https://github.com/nodejs/node/blob/v16.0.0/lib/querystring.js
  * @param { FormData } formData an object implemented FormData interface
  * @param {"multipart/form-data" | "application/x-www-form-urlencoded"} type 
  * @returns { body: string | Readable, headers: object }
@@ -223,12 +229,12 @@ class FormDataStream extends Readable {
 function serializeFormData(formData, type = formData?.type) {
   const iterator = (
     typeof formData.entries === "function"
-    ? formData.entries()
-    : formData[Symbol.iterator]
-      ? formData[Symbol.iterator]()
-      : Object.entries(formData)[Symbol.iterator]()
+      ? formData.entries()
+      : formData[Symbol.iterator]
+        ? formData[Symbol.iterator]()
+        : Object.entries(formData)[Symbol.iterator]()
   );
-  
+
   switch (type) {
     case "multipart/form-data":
       const formDataStream = new FormDataStream(iterator);
@@ -237,20 +243,48 @@ function serializeFormData(formData, type = formData?.type) {
         headers: {
           "Content-Type": `multipart/form-data; boundary=${formDataStream.boundary}; charset=UTF-8`
         }
-      }
+      };
     default:
-      type && console.warn(`Unknown type ${type} will be treated as application/x-www-form-urlencoded.`)
+      type && console.warn(`Unknown type ${type} will be treated as application/x-www-form-urlencoded.`);
     case "application/x-www-form-urlencoded":
-      const result = [];
+      let result = [];
       for (const [key, value] of iterator) {
-        result.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+        const escapedKey = escape(key);
+        if (Array.isArray(value)) {
+          if (value.length)
+            result = result.concat(value.map(v => `${escapedKey}=${escape(v)}`));
+        } else {
+          result.push(`${escapedKey}=${escape(value)}`);
+        }
       }
+
       return {
         body: result.join("&"),
         headers: {
           "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
         }
       };
+  }
+}
+
+function escape(value) {
+  switch (typeof value) {
+    case "string":
+      return (value.length ? querystring.escape(value) : "");
+    case "number":
+      if (isFinite(value))
+        /**
+         * Values >= 1e21 automatically switch to scientific notation which requires
+         * escaping due to the inclusion of a '+' in the output
+         */
+        return (Math.abs(value) < 1e21 ? String(value) : querystring.escape(String(value)));
+      return "";
+    case "bigint":
+      return String(value);
+    case "boolean":
+      return value ? "true" : "false";
+    default:
+      return "";
   }
 }
 
